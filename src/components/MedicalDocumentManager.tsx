@@ -11,6 +11,7 @@ import {
   Upload,
   X,
 } from 'lucide-react';
+import { apiFetch } from '../apiFallback';
 import { SAMPLE_DOCUMENT_TEMPLATES } from '../seedData';
 import {
   ExtractedMedicationItem,
@@ -140,7 +141,7 @@ export const MedicalDocumentManager: React.FC<MedicalDocumentManagerProps> = ({
       if (file.type.startsWith('text/') || file.name.endsWith('.txt')) {
         const text = await file.text();
         setDocOriginalText(text);
-        const res = await fetch('/api/ai/extract-document', {
+        const res = await apiFetch('/api/ai/extract-document', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ rawText: text, fileName: file.name }),
@@ -166,7 +167,7 @@ export const MedicalDocumentManager: React.FC<MedicalDocumentManagerProps> = ({
         reader.onload = async () => {
           const resultStr = String(reader.result || '');
           const base64Part = resultStr.includes(',') ? resultStr.split(',')[1] : '';
-          const res = await fetch('/api/ai/extract-document', {
+          const res = await apiFetch('/api/ai/extract-document', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -213,16 +214,17 @@ export const MedicalDocumentManager: React.FC<MedicalDocumentManagerProps> = ({
 
   const handleSaveUploadedRecord = async (verifyImmediately: boolean) => {
     if (!patient) return;
-    if (!docTitle.trim()) return;
+    const effectiveTitle =
+      docTitle.trim() || `${docCategory} — ${docHospital} (${docDate})`;
     setIsSavingRecord(true);
     try {
       const canVerify = role === 'doctor' && verifyImmediately;
-      const response = await fetch('/api/records', {
+      const response = await apiFetch('/api/records', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           patientId: patient.id,
-          title: docTitle.trim(),
+          title: effectiveTitle,
           category: docCategory,
           date: docDate,
           hospital: docHospital,
@@ -242,7 +244,7 @@ export const MedicalDocumentManager: React.FC<MedicalDocumentManagerProps> = ({
           summaryNotes: docSummaryNotes.trim() || `${docCategory} added for ${patient.fullName}.`,
           originalDocumentText:
             docOriginalText.trim() ||
-            `ORIGINAL DOCUMENT REFERENCE: ${docTitle} (${docHospital}, ${docDate})`,
+            `ORIGINAL DOCUMENT REFERENCE: ${effectiveTitle} (${docHospital}, ${docDate})`,
           fileName: selectedFileName || undefined,
           documentedDiagnosis: docDiagnosis,
           followUpRecommendation: docFollowUp,
@@ -273,7 +275,7 @@ export const MedicalDocumentManager: React.FC<MedicalDocumentManagerProps> = ({
   };
 
   const handleVerifyRecord = async (rec: MedicalRecord) => {
-    const response = await fetch(`/api/records/${rec.id}`, {
+    const response = await apiFetch(`/api/records/${rec.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -293,9 +295,34 @@ export const MedicalDocumentManager: React.FC<MedicalDocumentManagerProps> = ({
     }
   };
 
+  const handleRequestRecordApproval = async (rec: MedicalRecord) => {
+    const response = await apiFetch(`/api/records/${rec.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requestApproval: true,
+        actorRole: role,
+        actorIdentity:
+          role === 'patient' && patient
+            ? `${patient.fullName} (${patient.id})`
+            : 'Priya Nair, MHA (Hospital Admin)',
+      }),
+    });
+    if (response.ok) {
+      const data = await response.json();
+      await onRefreshState();
+      if (inspectedRecord?.id === rec.id) {
+        onInspectRecord(data.record);
+      }
+      setFeedbackBanner(
+        `Submitted clinician approval & verification request for ${rec.id} ("${rec.title}") to ${rec.clinician}.`
+      );
+    }
+  };
+
   const handleSaveMetadataEdits = async () => {
     if (!inspectedRecord) return;
-    const response = await fetch(`/api/records/${inspectedRecord.id}`, {
+    const response = await apiFetch(`/api/records/${inspectedRecord.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -482,14 +509,22 @@ export const MedicalDocumentManager: React.FC<MedicalDocumentManagerProps> = ({
                     >
                       Preview & Edit
                     </button>
-                    {rec.reviewStatus === 'Needs Review' && role === 'doctor' && (
-                      <button
-                        onClick={() => handleVerifyRecord(rec)}
-                        className="px-3 py-1.5 bg-teal-700 hover:bg-teal-800 text-white font-semibold rounded-lg transition-colors"
-                      >
-                        Verify Now
-                      </button>
-                    )}
+                    {rec.reviewStatus === 'Needs Review' &&
+                      (role === 'doctor' ? (
+                        <button
+                          onClick={() => handleVerifyRecord(rec)}
+                          className="px-3 py-1.5 bg-teal-700 hover:bg-teal-800 text-white font-semibold rounded-lg transition-colors"
+                        >
+                          Verify Now
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleRequestRecordApproval(rec)}
+                          className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg transition-colors"
+                        >
+                          Submit for Approval
+                        </button>
+                      ))}
                   </td>
                 </tr>
               ))}
@@ -700,17 +735,29 @@ export const MedicalDocumentManager: React.FC<MedicalDocumentManagerProps> = ({
                   </div>
                 )}
 
-                {inspectedRecord.reviewStatus === 'Needs Review' && role === 'doctor' && (
+                {inspectedRecord.reviewStatus === 'Needs Review' && (
                   <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-between gap-3">
                     <div className="text-xs text-amber-900">
-                      <strong>Clinician Verification Required:</strong> Confirm that extracted fields match the source document on the left.
+                      <strong>Clinician Verification Required:</strong>{' '}
+                      {role === 'doctor'
+                        ? 'Confirm that extracted fields match the source document on the left.'
+                        : 'Submit this unverified extraction to your clinician for formal sign-off.'}
                     </div>
-                    <button
-                      onClick={() => handleVerifyRecord(inspectedRecord)}
-                      className="px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white text-xs font-semibold rounded-lg whitespace-nowrap shrink-0"
-                    >
-                      Verify & Sign Off
-                    </button>
+                    {role === 'doctor' ? (
+                      <button
+                        onClick={() => handleVerifyRecord(inspectedRecord)}
+                        className="px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white text-xs font-semibold rounded-lg whitespace-nowrap shrink-0"
+                      >
+                        Verify & Sign Off
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleRequestRecordApproval(inspectedRecord)}
+                        className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-lg whitespace-nowrap shrink-0"
+                      >
+                        Submit for Doctor Approval
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -953,16 +1000,16 @@ export const MedicalDocumentManager: React.FC<MedicalDocumentManagerProps> = ({
               </button>
               <button
                 type="button"
-                disabled={isSavingRecord || !docTitle.trim()}
+                disabled={isSavingRecord}
                 onClick={() => handleSaveUploadedRecord(false)}
                 className="px-4 py-2 text-xs font-semibold text-amber-900 bg-amber-100 hover:bg-amber-200 rounded-lg disabled:opacity-50"
               >
-                Save as &ldquo;Needs Review&rdquo;
+                Save as &ldquo;Needs Review&rdquo; (Submit Approval Need)
               </button>
               {role === 'doctor' && (
                 <button
                   type="button"
-                  disabled={isSavingRecord || !docTitle.trim()}
+                  disabled={isSavingRecord}
                   onClick={() => handleSaveUploadedRecord(true)}
                   className="px-4 py-2 text-xs font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg disabled:opacity-50"
                 >

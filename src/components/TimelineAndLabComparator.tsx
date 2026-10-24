@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Sparkles,
 } from 'lucide-react';
+import { apiFetch } from '../apiFallback';
 import {
   LongitudinalSummaryResponse,
   MedicalRecord,
@@ -67,7 +68,7 @@ export const TimelineAndLabComparator: React.FC<TimelineAndLabComparatorProps> =
     setIsLoadingSummary(true);
     setSummaryError(null);
     try {
-      const response = await fetch('/api/ai/timeline-summary', {
+      const response = await apiFetch('/api/ai/timeline-summary', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

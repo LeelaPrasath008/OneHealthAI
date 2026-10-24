@@ -16,6 +16,7 @@ import {
   UserPlus,
   X,
 } from 'lucide-react';
+import { apiFetch } from '../apiFallback';
 import {
   AuditLogEntry,
   MedicalRecord,
@@ -117,7 +118,7 @@ export const PatientDirectoryAndProfile: React.FC<PatientDirectoryAndProfileProp
 
     setIsSubmitting(true);
     try {
-      const response = await fetch('/api/patients', {
+      const response = await apiFetch('/api/patients', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

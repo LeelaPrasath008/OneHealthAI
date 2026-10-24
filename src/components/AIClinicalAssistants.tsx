@@ -16,6 +16,7 @@ import {
   Sparkles,
   Stethoscope,
 } from 'lucide-react';
+import { apiFetch } from '../apiFallback';
 import {
   ClinicalCopilotResponse,
   MedicalRecord,
@@ -32,6 +33,7 @@ interface AIClinicalAssistantsProps {
   records: MedicalRecord[];
   aiConfigured: boolean;
   uiLanguage?: SupportedUILanguage;
+  onChangeLanguage?: (lang: SupportedUILanguage) => void;
   onInspectRecord: (record: MedicalRecord) => void;
 }
 
@@ -148,6 +150,7 @@ export const AIClinicalAssistants: React.FC<AIClinicalAssistantsProps> = ({
   records,
   aiConfigured,
   uiLanguage = 'en',
+  onChangeLanguage,
   onInspectRecord,
 }) => {
   const [inputQuestion, setInputQuestion] = useState('');
@@ -200,10 +203,14 @@ export const AIClinicalAssistants: React.FC<AIClinicalAssistantsProps> = ({
     setIsLoading(true);
     setErrorMsg(null);
     try {
-      const response = await fetch('/api/ai/patient-assistant', {
+      const response = await apiFetch('/api/ai/patient-assistant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ patientId: patient.id, question: query }),
+        body: JSON.stringify({
+          patientId: patient.id,
+          question: query,
+          language: uiLanguage,
+        }),
       });
       const data = await response.json();
       if (!response.ok) {
@@ -225,7 +232,7 @@ export const AIClinicalAssistants: React.FC<AIClinicalAssistantsProps> = ({
     setIsLoading(true);
     setErrorMsg(null);
     try {
-      const response = await fetch('/api/ai/clinical-copilot', {
+      const response = await apiFetch('/api/ai/clinical-copilot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ patientId: patient.id, question: query }),
@@ -275,6 +282,31 @@ export const AIClinicalAssistants: React.FC<AIClinicalAssistantsProps> = ({
                 Ask questions about your blood tests, hospital visits, or medications. Every explanation clearly separates what is written in your records from general health education.
               </p>
             </div>
+            {onChangeLanguage && (
+              <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                {(
+                  [
+                    { code: 'en', label: 'English' },
+                    { code: 'hi', label: 'हिंदी (Hindi)' },
+                    { code: 'ta', label: 'தமிழ் (Tamil)' },
+                    { code: 'kn', label: 'ಕನ್ನಡ (Kannada)' },
+                  ] as { code: SupportedUILanguage; label: string }[]
+                ).map((l) => (
+                  <button
+                    key={l.code}
+                    type="button"
+                    onClick={() => onChangeLanguage(l.code)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                      uiLanguage === l.code
+                        ? 'bg-teal-700 text-white'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    {l.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Indian Healthcare Multilingual Summary Support Card */}

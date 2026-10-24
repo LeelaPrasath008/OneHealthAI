@@ -118,32 +118,32 @@ export const PatientVitalsTrendChart: React.FC<PatientVitalsTrendChartProps> = (
       : null;
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-5">
+    <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-6 space-y-3.5 sm:space-y-5">
       {/* Header & Metric Selector */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-200">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2.5 sm:gap-4 pb-3 sm:pb-4 border-b border-slate-200">
         <div>
-          <div className="flex items-center gap-2 text-xs text-teal-700 font-medium">
-            <HeartPulse className="w-4 h-4" />
+          <div className="flex items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs text-teal-700 font-medium">
+            <HeartPulse className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
             <span>LONGITUDINAL VITAL SIGNS TRENDS · SOURCED FROM CONNECTED MEDICAL RECORDS</span>
           </div>
-          <h2 className="text-base font-bold text-slate-900 mt-0.5">
+          <h2 className="text-sm sm:text-base font-bold text-slate-900 mt-0.5">
             Recent Blood Pressure, Heart Rate &amp; SpO₂ Trajectory ({vitalPoints.length} Recorded Visits)
           </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <p className="text-xs text-slate-500 mt-0.5 hidden sm:block">
             Every data point is extracted directly from your clinician-verified or staged hospital records. Hover any point for source provenance or click a record below to inspect the original report.
           </p>
         </div>
 
-        <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg self-start lg:self-center shrink-0">
+        <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg self-start lg:self-center shrink-0 overflow-x-auto no-scrollbar max-w-full">
           {[
             { id: 'bp', label: 'Blood Pressure (mmHg)' },
-            { id: 'hr', label: 'Heart Rate (bpm) & SpO₂ (%)' },
-            { id: 'combined', label: 'All Vitals Overlay' },
+            { id: 'hr', label: 'Heart Rate & SpO₂' },
+            { id: 'combined', label: 'All Vitals' },
           ].map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveMetric(tab.id as 'bp' | 'hr' | 'combined')}
-              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors whitespace-nowrap ${
+              className={`px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-md text-[11px] sm:text-xs font-semibold transition-colors whitespace-nowrap ${
                 activeMetric === tab.id
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
@@ -155,57 +155,57 @@ export const PatientVitalsTrendChart: React.FC<PatientVitalsTrendChartProps> = (
         </div>
       </div>
 
-      {/* Latest Vitals Snapshot Strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
-        <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
-          <div className="text-slate-500">Latest Blood Pressure ({latestPoint.recordId})</div>
-          <div className="text-xl font-bold text-slate-900 font-mono tabular-nums mt-0.5">
+      {/* Latest Vitals Snapshot Strip (2x2 on Mobile) */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 text-xs">
+        <div className="p-2.5 sm:p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+          <div className="text-[11px] sm:text-xs text-slate-500 truncate">Blood Pressure ({latestPoint.recordId})</div>
+          <div className="text-base sm:text-xl font-bold text-slate-900 font-mono tabular-nums mt-0.5">
             {latestPoint.systolicBp ?? '—'}/{latestPoint.diastolicBp ?? '—'}{' '}
-            <span className="text-xs font-normal text-slate-500">mmHg</span>
+            <span className="text-[11px] sm:text-xs font-normal text-slate-500">mmHg</span>
           </div>
-          <div className="text-emerald-700 font-medium mt-0.5">
+          <div className="text-[11px] sm:text-xs text-emerald-700 font-medium mt-0.5 truncate">
             {systolicDelta !== null && systolicDelta < 0
-              ? `${systolicDelta} mmHg systolic vs. baseline (${firstPoint.recordId})`
+              ? `${systolicDelta} mmHg vs. baseline`
               : 'Target < 130/80 mmHg'}
           </div>
         </div>
 
-        <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
-          <div className="text-slate-500">Latest Resting Heart Rate ({latestPoint.recordId})</div>
-          <div className="text-xl font-bold text-slate-900 font-mono tabular-nums mt-0.5">
+        <div className="p-2.5 sm:p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+          <div className="text-[11px] sm:text-xs text-slate-500 truncate">Heart Rate ({latestPoint.recordId})</div>
+          <div className="text-base sm:text-xl font-bold text-slate-900 font-mono tabular-nums mt-0.5">
             {latestPoint.heartRateBpm ?? '—'}{' '}
-            <span className="text-xs font-normal text-slate-500">bpm</span>
+            <span className="text-[11px] sm:text-xs font-normal text-slate-500">bpm</span>
           </div>
-          <div className="text-slate-600 mt-0.5">Normal resting sinus rhythm (60–100 bpm)</div>
+          <div className="text-[11px] sm:text-xs text-slate-600 mt-0.5 truncate">Normal (60–100 bpm)</div>
         </div>
 
-        <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
-          <div className="text-slate-500">Oxygen Saturation (SpO₂)</div>
-          <div className="text-xl font-bold text-teal-800 font-mono tabular-nums mt-0.5">
+        <div className="p-2.5 sm:p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+          <div className="text-[11px] sm:text-xs text-slate-500 truncate">Oxygen (SpO₂)</div>
+          <div className="text-base sm:text-xl font-bold text-teal-800 font-mono tabular-nums mt-0.5">
             {latestPoint.spO2Pct ?? 99}%
           </div>
-          <div className="text-slate-600 mt-0.5">Room air pulse oximetry</div>
+          <div className="text-[11px] sm:text-xs text-slate-600 mt-0.5 truncate">Room air oximetry</div>
         </div>
 
-        <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
-          <div className="text-slate-500">Latest Source Provenance</div>
-          <div className="text-sm font-bold text-slate-900 font-mono mt-0.5">
+        <div className="p-2.5 sm:p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+          <div className="text-[11px] sm:text-xs text-slate-500 truncate">Latest Source</div>
+          <div className="text-xs sm:text-sm font-bold text-slate-900 font-mono mt-0.5 truncate">
             {latestPoint.date} · {latestPoint.recordId}
           </div>
           <div
-            className={`font-semibold mt-0.5 ${
+            className={`text-[11px] sm:text-xs font-semibold mt-0.5 truncate ${
               latestPoint.reviewStatus === 'Verified' ? 'text-emerald-700' : 'text-amber-700'
             }`}
           >
             {latestPoint.reviewStatus === 'Verified'
-              ? 'Clinician-Verified Record'
-              : 'Machine-Extracted (Needs Review)'}
+              ? 'Clinician-Verified'
+              : 'Needs Review'}
           </div>
         </div>
       </div>
 
       {/* Interactive Recharts Visualization */}
-      <div className="h-72 w-full pt-2">
+      <div className="h-52 sm:h-72 w-full pt-1 sm:pt-2">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
             data={vitalPoints}

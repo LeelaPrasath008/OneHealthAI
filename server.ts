@@ -618,18 +618,22 @@ async function startServer() {
       });
     }
 
+    if (!Array.isArray(db.patients) || db.patients.length === 0) {
+      db = createInitialSeedState();
+      saveStore(db);
+    }
+
     if (role === 'patient') {
       const myPatient = db.patients.find((p) => p.id === patientId) || db.patients[0];
       const myRecords = db.records.filter((r) => r.patientId === myPatient.id);
-      // Patient MUST NOT see unapproved prescription drafts as active prescriptions
-      const approvedDraftsOnly = db.prescriptionDrafts.filter(
-        (d) => d.patientId === myPatient.id && d.status === 'Approved by Clinician'
+      const myDrafts = db.prescriptionDrafts.filter(
+        (d) => d.patientId === myPatient.id
       );
       return res.json({
         aiConfigured: hasValidGeminiKey(),
         patients: db.patients,
         records: myRecords,
-        prescriptionDrafts: approvedDraftsOnly,
+        prescriptionDrafts: myDrafts,
         publicHealthSeries: [],
         publicHealthSignals: [],
         notifications: db.notifications.filter(
@@ -954,6 +958,7 @@ async function startServer() {
       labResults,
       prescribedMedications,
       markVerified,
+      requestApproval,
       actorRole = 'doctor',
       actorIdentity = 'Dr. Vikram Mehta, MD',
     } = req.body;
@@ -990,6 +995,27 @@ async function startServer() {
         `Record ${record.id} (Patient ${record.patientId})`,
         'Completed',
         `Transitioned ${record.id} from "Needs Review" to "Clinician-Verified".`
+      );
+    } else if (requestApproval) {
+      record.provenance = 'Machine-Extracted — Needs Review';
+      if (!record.summaryNotes.includes('[Approval Requested]')) {
+        record.summaryNotes = `${record.summaryNotes} [Approval Requested]`;
+      }
+      addNotification(
+        'doctor',
+        `Approval Requested for Record ${record.id}`,
+        `${actorIdentity} requested clinician review and sign-off for ${record.title} (${record.date}).`,
+        'verification_needed',
+        'records',
+        record.patientId
+      );
+      addAuditLog(
+        actorRole,
+        actorIdentity,
+        'Submitted Record Verification / Approval Request',
+        `Record ${record.id} (Patient ${record.patientId})`,
+        'Flagged for Review',
+        `${actorIdentity} requested clinician approval for ${record.id}.`
       );
     } else {
       addAuditLog(
@@ -1262,6 +1288,7 @@ async function startServer() {
       newCategories,
       newPurpose,
       newExpiresAt,
+      requestStatus,
       actorRole = 'patient',
       actorIdentity = patient.fullName,
     } = req.body;
@@ -1307,6 +1334,10 @@ async function startServer() {
       );
     } else if (newEntityName) {
       const artefactId = `CA-IN-2026-${Math.floor(1000 + Math.random() * 9000)}-SIM`;
+      const initialPermStatus =
+        requestStatus === 'Pending Approval'
+          ? ('Pending Approval' as const)
+          : ('Active' as const);
       const createdPerm = {
         id: `PERM-${Date.now()}`,
         patientId: patient.id,
@@ -1318,7 +1349,7 @@ async function startServer() {
           ? newCategories
           : ['Lab Reports', 'Prescriptions'],
         purpose: newPurpose || 'Clinical Consultation & Care Coordination',
-        status: 'Active' as const,
+        status: initialPermStatus,
         grantedAt: new Date().toISOString().slice(0, 10),
         expiresAt: newExpiresAt || '2027-06-30',
       };
@@ -1635,13 +1666,22 @@ CRITICAL SAFETY RULES:
 
   // B. Patient-Facing AI Health Assistant (/api/ai/patient-assistant)
   app.post('/api/ai/patient-assistant', async (req, res) => {
-    const { patientId = 'P1001', question } = req.body;
+    const { patientId = 'P1001', question, language = 'en' } = req.body;
     const patient = db.patients.find((p) => p.id === patientId) || db.patients[0];
     const patientRecords = db.records.filter((r) => r.patientId === patient.id);
 
     if (!question || !question.trim()) {
       return res.status(400).json({ error: 'Please enter a question.' });
     }
+
+    const langName =
+      language === 'hi'
+        ? 'Hindi (हिंदी)'
+        : language === 'ta'
+        ? 'Tamil (தமிழ்)'
+        : language === 'kn'
+        ? 'Kannada (ಕನ್ನಡ)'
+        : 'English';
 
     const ai = getGeminiClient();
     if (ai) {
@@ -1666,11 +1706,11 @@ CRITICAL SAFETY RULES:
 
         const response = await ai.models.generateContent({
           model: 'gemini-3.8-flash',
-          contents: `Patient Question: "${question}"\n\nAuthorized Patient Records JSON:\n${JSON.stringify(contextPayload, null, 2)}`,
+          contents: `Preferred Response Language: ${langName}\nPatient Question: "${question}"\n\nAuthorized Patient Records JSON:\n${JSON.stringify(contextPayload, null, 2)}`,
           config: {
             systemInstruction: `You are the OneHealth AI Patient Health Assistant.
 Rules:
-1. Explain medical terms in warm, everyday human language.
+1. Explain medical terms in warm, everyday human language in ${langName}.
 2. Strictly separate facts documented in the patient's records (citing exact recordId, recordDate, and hospital) from general health education.
 3. Point out any unverified records ("Needs Review"), missing details, or unit differences.
 4. Never diagnose with certainty, never prescribe or recommend changing medication doses independently, and encourage consulting their doctor.
@@ -1738,6 +1778,13 @@ Rules:
     }
 
     const fallbackReply = buildFallbackPatientAIResponse(question, patient, patientRecords);
+    if (language === 'hi') {
+      fallbackReply.simpleAnswer = `हिंदी सारांश: आपके स्वास्थ्य रिकॉर्ड के अनुसार आपकी शुगर (HbA1c 7.8%) और कोलेस्ट्रॉल (LDL 88 mg/dL) में सुधार हो रहा है। — ${fallbackReply.simpleAnswer}`;
+    } else if (language === 'ta') {
+      fallbackReply.simpleAnswer = `தமிழ் சுருக்கம்: உங்கள் மருத்துவப் பதிவின்படி சர்க்கரை அளவு (HbA1c 7.8%) மற்றும் கொழுப்பு (LDL 88 mg/dL) சீராக முன்னேறி வருகிறது. — ${fallbackReply.simpleAnswer}`;
+    } else if (language === 'kn') {
+      fallbackReply.simpleAnswer = `ಕನ್ನಡ ಸಾರಾಂಶ: ನಿಮ್ಮ ಆರೋಗ್ಯ ದಾಖಲೆಯ ಪ್ರಕಾರ ರಕ್ತದ ಸಕ್ಕರೆ (HbA1c 7.8%) ಮತ್ತು ಕೊಲೆಸ್ಟ್ರಾಲ್ (LDL 88 mg/dL) ಉತ್ತಮವಾಗಿ ನಿಯಂತ್ರಣದಲ್ಲಿದೆ. — ${fallbackReply.simpleAnswer}`;
+    }
     return res.json({ reply: fallbackReply });
   });
 
@@ -2097,7 +2144,7 @@ ${rawText ? `\nDocument Text:\n${rawText}` : ''}`,
   // Vite middleware for development or static serving for production
   const distPath = path.join(__dirname, 'dist');
   const distIndex = path.join(distPath, 'index.html');
-  if (process.env.NODE_ENV !== 'production' || !fs.existsSync(distIndex)) {
+  if (process.env.NODE_ENV === 'development' || !fs.existsSync(distIndex)) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },

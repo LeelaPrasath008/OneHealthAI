@@ -13,6 +13,7 @@ import {
   UserCheck,
   XCircle,
 } from 'lucide-react';
+import { apiFetch } from '../apiFallback';
 import {
   ABDMExchangeLogItem,
   FacilityStaffConfigItem,
@@ -75,7 +76,7 @@ export const ABDMReadinessWorkspace: React.FC<ABDMReadinessWorkspaceProps> = ({
     setIsProcessing(true);
     setStatusFeedback(null);
     try {
-      const res = await fetch(`/api/patients/${patient.id}/permissions`, {
+      const res = await apiFetch(`/api/patients/${patient.id}/permissions`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -103,7 +104,7 @@ export const ABDMReadinessWorkspace: React.FC<ABDMReadinessWorkspaceProps> = ({
     setIsProcessing(true);
     setStatusFeedback(null);
     try {
-      const res = await fetch('/api/abdm/exchange', {
+      const res = await apiFetch('/api/abdm/exchange', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -464,18 +465,58 @@ export const ABDMReadinessWorkspace: React.FC<ABDMReadinessWorkspaceProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
         {/* Left 7 Cols: Consent Artefact Queue (Approve / Reject / Revoke) */}
         <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-6 space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h2 className="text-base font-bold text-slate-900">
                 Patient-Controlled Consent Artefacts (DEPA / ABDM Consent Flow)
               </h2>
               <p className="text-xs text-slate-500">
-                Approve pending HIU consent requests, or revoke active artefacts to immediately block downstream record exchange
+                Approve pending HIU consent requests, submit a new approval request, or revoke active artefacts
               </p>
             </div>
-            <span className="font-mono text-xs font-semibold text-slate-600">
-              {patient.sharingPermissions.length} Artefacts
-            </span>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                disabled={isProcessing}
+                onClick={async () => {
+                  setIsProcessing(true);
+                  setStatusFeedback(null);
+                  try {
+                    const res = await fetch(`/api/patients/${patient.id}/permissions`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        newEntityName: 'National Heart & Diabetes Research Institute (HIU Request)',
+                        newEntityType: 'Hospital',
+                        newCategories: ['Lab Reports', 'Prescriptions', 'Discharge Summaries'],
+                        newPurpose: 'Multi-Hospital Continuity of Care & Specialist Review',
+                        newExpiresAt: '2027-09-30',
+                        requestStatus: 'Pending Approval',
+                        actorRole: role,
+                        actorIdentity:
+                          role === 'doctor'
+                            ? 'Dr. Vikram Mehta, MD'
+                            : `${patient.fullName} (${patient.id})`,
+                      }),
+                    });
+                    if (res.ok) {
+                      await onRefreshState();
+                      setStatusFeedback(
+                        'Submitted new HIU Consent Approval Request ("Pending Approval"). Click "Approve Consent Request" below to authorize.'
+                      );
+                    }
+                  } finally {
+                    setIsProcessing(false);
+                  }
+                }}
+                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap"
+              >
+                + Submit Consent Approval Request
+              </button>
+              <span className="font-mono text-xs font-semibold text-slate-600">
+                {patient.sharingPermissions.length} Artefacts
+              </span>
+            </div>
           </div>
 
           <div className="space-y-3">

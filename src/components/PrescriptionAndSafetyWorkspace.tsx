@@ -14,6 +14,7 @@ import {
   Sparkles,
   XCircle,
 } from 'lucide-react';
+import { apiFetch } from '../apiFallback';
 import {
   MedicalRecord,
   Patient,
@@ -62,7 +63,7 @@ export const PrescriptionAndSafetyWorkspace: React.FC<
   const [editInstructions, setEditInstructions] = useState('');
   const [editRationale, setEditRationale] = useState('');
   const [clinicianReviewNotes, setClinicianReviewNotes] = useState('');
-  const [attestationChecked, setAttestationChecked] = useState(false);
+  const [attestationChecked, setAttestationChecked] = useState(true);
   const [isUpdatingDraft, setIsUpdatingDraft] = useState(false);
 
   if (!patient) {
@@ -112,7 +113,7 @@ export const PrescriptionAndSafetyWorkspace: React.FC<
     setErrorMsg(null);
     setFeedbackMsg(null);
     try {
-      const aiRes = await fetch('/api/ai/prescription-draft', {
+      const aiRes = await apiFetch('/api/ai/prescription-draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -127,7 +128,7 @@ export const PrescriptionAndSafetyWorkspace: React.FC<
       }
 
       const p = aiData.proposal;
-      const createRes = await fetch('/api/prescriptions', {
+      const createRes = await apiFetch('/api/prescriptions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -154,7 +155,7 @@ export const PrescriptionAndSafetyWorkspace: React.FC<
       if (createRes.ok && createdData.draft) {
         await onRefreshState();
         setSelectedDraftId(createdData.draft.id);
-        setAttestationChecked(false);
+        setAttestationChecked(true);
         setFeedbackMsg(
           `AI prepared non-active prescription draft ${createdData.draft.id} ("${createdData.draft.medicationName}") with status "Awaiting Clinician Review". Only an authorized clinician can approve it.`
         );
@@ -168,7 +169,7 @@ export const PrescriptionAndSafetyWorkspace: React.FC<
 
   const handleCreateBlankClinicianDraft = async () => {
     setErrorMsg(null);
-    const res = await fetch('/api/prescriptions', {
+    const res = await apiFetch('/api/prescriptions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -200,7 +201,7 @@ export const PrescriptionAndSafetyWorkspace: React.FC<
     setIsUpdatingDraft(true);
     setErrorMsg(null);
     try {
-      const res = await fetch(`/api/prescriptions/${activeDraft.id}`, {
+      const res = await apiFetch(`/api/prescriptions/${activeDraft.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -241,7 +242,7 @@ export const PrescriptionAndSafetyWorkspace: React.FC<
 
     setIsUpdatingDraft(true);
     try {
-      const res = await fetch(`/api/prescriptions/${activeDraft.id}`, {
+      const res = await apiFetch(`/api/prescriptions/${activeDraft.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -668,9 +669,23 @@ export const PrescriptionAndSafetyWorkspace: React.FC<
                     </span>
                   </label>
 
+                  {feedbackMsg && (
+                    <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-900 flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                      <span>{feedbackMsg}</span>
+                    </div>
+                  )}
+
+                  {errorMsg && (
+                    <div className="p-3 rounded-lg bg-red-50 border border-red-300 text-xs font-semibold text-red-900 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-red-700 shrink-0" />
+                      <span>{errorMsg}</span>
+                    </div>
+                  )}
+
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      {activeDraft.status === 'Draft' && (
+                      {activeDraft.status !== 'Awaiting Clinician Review' && (
                         <button
                           onClick={() =>
                             handleWorkflowTransition('Awaiting Clinician Review')
@@ -678,7 +693,7 @@ export const PrescriptionAndSafetyWorkspace: React.FC<
                           disabled={isUpdatingDraft}
                           className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-lg"
                         >
-                          Submit for Review
+                          Submit for Approval / Review
                         </button>
                       )}
                       <button
@@ -714,8 +729,65 @@ export const PrescriptionAndSafetyWorkspace: React.FC<
                   </div>
                 </div>
               ) : (
-                <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
-                  <strong>Role Boundary Enforced:</strong> You are currently viewing in <strong>{role.toUpperCase()}</strong> mode. Only an authorized clinician (<strong>DOCTOR</strong> role) can approve or reject prescription drafts.
+                <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-950 space-y-3">
+                  <div>
+                    <strong className="text-sm block">
+                      Submit Doctor Approval / Prescription Renewal Request ({role.toUpperCase()} Mode)
+                    </strong>
+                    <p className="mt-0.5 text-slate-700">
+                      Only a licensed clinician (<strong>DOCTOR</strong> role) can finalize and approve prescriptions. As a <strong>{role.toUpperCase()}</strong>, you can submit a new approval/refill request to {patient.assignedClinician} below:
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={isUpdatingDraft}
+                      onClick={async () => {
+                        setIsUpdatingDraft(true);
+                        setErrorMsg(null);
+                        try {
+                          const firstMed = patient.medications[0];
+                          const res = await apiFetch('/api/prescriptions', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              patientId: patient.id,
+                              medicationName: firstMed
+                                ? `${firstMed.name} (Refill / Approval Request)`
+                                : 'Telmisartan 40 mg (Approval Request)',
+                              strength: firstMed ? firstMed.strength : '40 mg',
+                              dose: firstMed ? firstMed.dose : '1 tablet',
+                              route: 'Oral',
+                              frequency: firstMed ? firstMed.frequency : 'Once daily',
+                              duration: '90 days',
+                              instructions: 'Submitted for clinician review and approval.',
+                              supportingRationale: `${role.toUpperCase()} submitted an approval/refill request for ${patient.fullName} (${patient.id}).`,
+                              sourceRecordIds: patientRecords.slice(0, 2).map((r) => r.id),
+                              createdBy:
+                                role === 'patient'
+                                  ? `${patient.fullName} (Patient Request)`
+                                  : 'Priya Nair, MHA (Hospital Admin Request)',
+                              status: 'Awaiting Clinician Review',
+                            }),
+                          });
+                          const data = await res.json();
+                          if (res.ok && data.draft) {
+                            await onRefreshState();
+                            setSelectedDraftId(data.draft.id);
+                            setFeedbackMsg(
+                              `Submitted approval request ${data.draft.id} ("${data.draft.medicationName}") to ${patient.assignedClinician}. Status: Awaiting Clinician Review.`
+                            );
+                          }
+                        } finally {
+                          setIsUpdatingDraft(false);
+                        }
+                      }}
+                      className="px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white font-semibold rounded-lg flex items-center gap-1.5"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Submit Approval Request to Doctor</span>
+                    </button>
+                  </div>
                 </div>
               )}
 

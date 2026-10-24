@@ -17,7 +17,14 @@ import {
   Sparkles,
   Sun,
 } from 'lucide-react';
-import { MedicalRecord, NavigationSection, Patient, UserRole } from '../types';
+import { apiFetch } from '../apiFallback';
+import { UI_TRANSLATIONS } from '../i18n';
+import {
+  MedicalRecord,
+  NavigationSection,
+  Patient,
+  SupportedUILanguage,
+} from '../types';
 
 // ============================================================================
 // HIGH-RESOLUTION SVG MEDICAL ILLUSTRATIONS (ENCODED AS DATA-URI IMAGES)
@@ -192,17 +199,70 @@ export const DOCTOR_WORKFLOW_BANNER_IMG = svgToDataUri(`
 interface PatientVisualGuideProps {
   patient: Patient;
   records: MedicalRecord[];
+  uiLanguage?: SupportedUILanguage;
   onNavigate: (section: NavigationSection) => void;
   onInspectRecord: (record: MedicalRecord) => void;
+  onRefreshState?: () => Promise<void>;
 }
 
 export const PatientVisualHealthSnapshot: React.FC<PatientVisualGuideProps> = ({
   patient,
   records,
+  uiLanguage = 'en',
   onNavigate,
   onInspectRecord,
+  onRefreshState,
 }) => {
   const [expandedReportId, setExpandedReportId] = useState<string | null>(null);
+  const [renewalRequested, setRenewalRequested] = useState<boolean>(false);
+  const [requestedRecordIds, setRequestedRecordIds] = useState<Record<string, boolean>>({});
+  const [actionToast, setActionToast] = useState<string | null>(null);
+
+  const t = (UI_TRANSLATIONS[uiLanguage] || UI_TRANSLATIONS.en).visualGuide;
+
+  const handleSubmitMedicineRenewalRequest = async () => {
+    const primaryMed = patient.medications[0];
+    await apiFetch('/api/prescriptions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        patientId: patient.id,
+        medicationName: primaryMed ? primaryMed.name : 'Telmisartan',
+        strength: primaryMed ? primaryMed.strength : '40 mg',
+        dose: primaryMed ? primaryMed.dose : '1 tablet',
+        route: primaryMed ? primaryMed.route : 'Oral',
+        frequency: primaryMed ? primaryMed.frequency : 'Once daily',
+        duration: '90 days',
+        instructions: 'Patient-requested refill awaiting clinician verification and approval.',
+        supportingRationale: `Patient ${patient.fullName} (${patient.id}) submitted a prescription refill/approval request from the Patient Health Guide.`,
+        sourceRecordIds: records.slice(0, 2).map((r) => r.id),
+        createdBy: `${patient.fullName} (Patient Request)`,
+        status: 'Awaiting Clinician Review',
+      }),
+    });
+    setRenewalRequested(true);
+    setActionToast(
+      `Submitted prescription approval request for ${primaryMed?.name || 'daily medicine'} to ${patient.assignedClinician}.`
+    );
+    if (onRefreshState) await onRefreshState();
+  };
+
+  const handleSubmitRecordApprovalNeed = async (rec: MedicalRecord) => {
+    await apiFetch(`/api/records/${rec.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requestApproval: true,
+        actorRole: 'patient',
+        actorIdentity: `${patient.fullName} (${patient.id})`,
+      }),
+    });
+    setRequestedRecordIds((prev) => ({ ...prev, [rec.id]: true }));
+    setActionToast(
+      `Submitted doctor verification & approval request for report ${rec.id} ("${rec.title}").`
+    );
+    if (onRefreshState) await onRefreshState();
+  };
 
   // Find latest & earliest BP and HbA1c from records for visual meters
   const recordsChronological = [...records].sort((a, b) => a.date.localeCompare(b.date));
@@ -283,36 +343,49 @@ export const PatientVisualHealthSnapshot: React.FC<PatientVisualGuideProps> = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3.5 sm:space-y-6">
+      {actionToast && (
+        <div className="p-3 sm:p-4 rounded-xl bg-emerald-50 border border-emerald-300 flex items-center justify-between gap-3 text-xs font-semibold text-emerald-950">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+            <span>{actionToast}</span>
+          </div>
+          <button
+            onClick={() => setActionToast(null)}
+            className="text-emerald-800 hover:underline shrink-0"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* 1. AT-A-GLANCE VISUAL HEALTH CARDS WITH ILLUSTRATIONS (EASY FOR NORMAL PEOPLE) */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-5">
+      <div className="bg-white border border-slate-200 rounded-2xl p-3.5 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3.5 sm:mb-5">
           <div>
-            <span className="text-xs font-bold text-teal-700 tracking-wide">
+            <span className="text-[11px] sm:text-xs font-bold text-teal-700 tracking-wide">
               EASY-TO-READ VISUAL HEALTH SNAPSHOT · {patient.fullName.toUpperCase()} ({patient.id})
             </span>
-            <h2 className="text-lg sm:text-xl font-bold text-slate-900 mt-0.5">
-              How Your Health Is Doing Right Now (In Simple Pictures)
+            <h2 className="text-base sm:text-xl font-bold text-slate-900 mt-0.5">
+              {t.section1Title}
             </h2>
-            <p className="text-sm text-slate-600">
-              No confusing medical jargon — see your heart, blood sugar, kidney health, and daily medicines at a glance.
-            </p>
+            <p className="text-xs sm:text-sm text-slate-600">{t.section1Subtitle}</p>
           </div>
           <button
             onClick={() => onNavigate('patient-ai')}
-            className="px-4 py-2.5 bg-teal-700 hover:bg-teal-800 text-white text-xs font-semibold rounded-xl flex items-center gap-2 self-start sm:self-center shrink-0"
+            className="px-3 py-1.5 sm:px-4 sm:py-2.5 bg-teal-700 hover:bg-teal-800 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 sm:gap-2 self-start sm:self-center shrink-0"
           >
-            <MessageSquareHeart className="w-4 h-4" />
+            <MessageSquareHeart className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             <span>Ask a Question in Simple Words</span>
           </button>
         </div>
 
         {/* 3 Large Illustrated Story Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 items-stretch">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-5 items-stretch">
           {/* Card 1: Heart & Blood Pressure */}
           <div className="rounded-xl border border-slate-200 bg-slate-50/60 overflow-hidden flex flex-col justify-between">
             <div>
-              <div className="aspect-[5/3] w-full bg-teal-50 border-b border-slate-200 overflow-hidden">
+              <div className="h-28 sm:h-auto sm:aspect-[5/3] w-full bg-teal-50 border-b border-slate-200 overflow-hidden">
                 <img
                   src={HEART_BP_ILLUSTRATION_IMG}
                   alt="Heart and blood pressure progress illustration"
@@ -320,31 +393,31 @@ export const PatientVisualHealthSnapshot: React.FC<PatientVisualGuideProps> = ({
                   className="w-full h-full object-cover"
                 />
               </div>
-              <div className="p-4 space-y-2.5">
-                <div className="flex items-center justify-between text-xs">
+              <div className="p-3 sm:p-4 space-y-1.5 sm:space-y-2.5">
+                <div className="flex items-center justify-between text-[11px] sm:text-xs">
                   <span className="font-bold text-teal-800">1. HEART &amp; BLOOD PRESSURE</span>
                   <span className="font-semibold text-emerald-700">✓ Healthy Target</span>
                 </div>
-                <div className="text-base font-bold text-slate-900">
+                <div className="text-sm sm:text-base font-bold text-slate-900">
                   BP is Down to {systolic}/{diastolic} mmHg
                 </div>
-                <p className="text-sm text-slate-700 leading-snug">
+                <p className="text-xs sm:text-sm text-slate-700 leading-snug">
                   Your blood pressure improved from <strong>{firstSystolic}/{firstDiastolic}</strong> down to{' '}
                   <strong>{systolic}/{diastolic} mmHg</strong> across your connected hospital visits.
                 </p>
                 {/* Visual Progress Meter */}
-                <div className="pt-1">
-                  <div className="flex justify-between text-[11px] font-semibold text-slate-600 mb-1">
+                <div className="pt-0.5 sm:pt-1">
+                  <div className="flex justify-between text-[10px] sm:text-[11px] font-semibold text-slate-600 mb-1">
                     <span>Earlier: {firstSystolic}/{firstDiastolic}</span>
                     <span className="text-emerald-700">Latest: {systolic}/{diastolic} (Good)</span>
                   </div>
-                  <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                  <div className="w-full h-2 sm:h-2.5 bg-slate-200 rounded-full overflow-hidden">
                     <div className="h-full bg-emerald-600 rounded-full w-4/5" />
                   </div>
                 </div>
               </div>
             </div>
-            <div className="px-4 py-3 bg-white border-t border-slate-200/80 text-xs font-medium text-slate-700 flex items-center justify-between">
+            <div className="px-3 py-2 sm:px-4 sm:py-3 bg-white border-t border-slate-200/80 text-[11px] sm:text-xs font-medium text-slate-700 flex items-center justify-between">
               <span>
                 Action: Continue daily prescribed care ({patient.medications[0]?.name || 'Maintenance'})
               </span>
@@ -354,7 +427,7 @@ export const PatientVisualHealthSnapshot: React.FC<PatientVisualGuideProps> = ({
           {/* Card 2: Blood Sugar & Kidneys */}
           <div className="rounded-xl border border-slate-200 bg-slate-50/60 overflow-hidden flex flex-col justify-between">
             <div>
-              <div className="aspect-[5/3] w-full bg-sky-50 border-b border-slate-200 overflow-hidden">
+              <div className="h-28 sm:h-auto sm:aspect-[5/3] w-full bg-sky-50 border-b border-slate-200 overflow-hidden">
                 <img
                   src={SUGAR_KIDNEY_ILLUSTRATION_IMG}
                   alt="Blood sugar and kidney health illustration"
@@ -362,30 +435,30 @@ export const PatientVisualHealthSnapshot: React.FC<PatientVisualGuideProps> = ({
                   className="w-full h-full object-cover"
                 />
               </div>
-              <div className="p-4 space-y-2.5">
-                <div className="flex items-center justify-between text-xs">
+              <div className="p-3 sm:p-4 space-y-1.5 sm:space-y-2.5">
+                <div className="flex items-center justify-between text-[11px] sm:text-xs">
                   <span className="font-bold text-sky-800">2. BLOOD SUGAR &amp; KIDNEYS</span>
                   <span className="font-semibold text-emerald-700">✓ Improving</span>
                 </div>
-                <div className="text-base font-bold text-slate-900">
+                <div className="text-sm sm:text-base font-bold text-slate-900">
                   3-Month Sugar (HbA1c) at {latestHba1c}%
                 </div>
-                <p className="text-sm text-slate-700 leading-snug">
+                <p className="text-xs sm:text-sm text-slate-700 leading-snug">
                   Your average blood sugar improved from <strong>{firstHba1c}% → {latestHba1c}%</strong>, and your kidneys are filtering normally.
                 </p>
                 {/* Visual Progress Meter */}
-                <div className="pt-1">
-                  <div className="flex justify-between text-[11px] font-semibold text-slate-600 mb-1">
+                <div className="pt-0.5 sm:pt-1">
+                  <div className="flex justify-between text-[10px] sm:text-[11px] font-semibold text-slate-600 mb-1">
                     <span>Earlier: {firstHba1c}%</span>
                     <span className="text-sky-700">Latest: {latestHba1c}% (On Track)</span>
                   </div>
-                  <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                  <div className="w-full h-2 sm:h-2.5 bg-slate-200 rounded-full overflow-hidden">
                     <div className="h-full bg-sky-600 rounded-full w-5/6" />
                   </div>
                 </div>
               </div>
             </div>
-            <div className="px-4 py-3 bg-white border-t border-slate-200/80 text-xs font-medium text-slate-700 flex items-center justify-between">
+            <div className="px-3 py-2 sm:px-4 sm:py-3 bg-white border-t border-slate-200/80 text-[11px] sm:text-xs font-medium text-slate-700 flex items-center justify-between">
               <span>Action: Routine follow-up lab check as scheduled</span>
             </div>
           </div>
@@ -393,7 +466,7 @@ export const PatientVisualHealthSnapshot: React.FC<PatientVisualGuideProps> = ({
           {/* Card 3: Daily Medicine & Allergy Safety */}
           <div className="rounded-xl border border-slate-200 bg-slate-50/60 overflow-hidden flex flex-col justify-between">
             <div>
-              <div className="aspect-[5/3] w-full bg-amber-50 border-b border-slate-200 overflow-hidden">
+              <div className="h-28 sm:h-auto sm:aspect-[5/3] w-full bg-amber-50 border-b border-slate-200 overflow-hidden">
                 <img
                   src={DAILY_MEDICINE_ILLUSTRATION_IMG}
                   alt="Daily medicine schedule illustration"
@@ -401,8 +474,8 @@ export const PatientVisualHealthSnapshot: React.FC<PatientVisualGuideProps> = ({
                   className="w-full h-full object-cover"
                 />
               </div>
-              <div className="p-4 space-y-2.5">
-                <div className="flex items-center justify-between text-xs">
+              <div className="p-3 sm:p-4 space-y-1.5 sm:space-y-2.5">
+                <div className="flex items-center justify-between text-[11px] sm:text-xs">
                   <span className="font-bold text-amber-900">3. DAILY MEDICINES &amp; SAFETY</span>
                   <span className="font-semibold text-red-700">
                     {patient.allergies.length > 0
@@ -410,10 +483,10 @@ export const PatientVisualHealthSnapshot: React.FC<PatientVisualGuideProps> = ({
                       : 'No Known Allergies'}
                   </span>
                 </div>
-                <div className="text-base font-bold text-slate-900">
+                <div className="text-sm sm:text-base font-bold text-slate-900">
                   {patient.medications.length} Approved Daily Medicines
                 </div>
-                <p className="text-sm text-slate-700 leading-snug">
+                <p className="text-xs sm:text-sm text-slate-700 leading-snug">
                   All your active medicines are checked and approved by your doctor.{' '}
                   {primaryAllergy ? (
                     <strong className="text-red-700">
@@ -424,70 +497,85 @@ export const PatientVisualHealthSnapshot: React.FC<PatientVisualGuideProps> = ({
                   )}
                 </p>
                 {primaryAllergy ? (
-                  <div className="p-2.5 rounded-lg bg-red-50 border border-red-200 text-xs text-red-900 font-semibold flex items-center gap-2">
-                    <ShieldAlert className="w-4 h-4 text-red-700 shrink-0" />
+                  <div className="p-2 rounded-lg bg-red-50 border border-red-200 text-[11px] sm:text-xs text-red-900 font-semibold flex items-center gap-1.5 sm:gap-2">
+                    <ShieldAlert className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-red-700 shrink-0" />
                     <span>
-                      Allergy: {primaryAllergy.substance} ({primaryAllergy.reaction})
+                      {t.allergyAlertTitle} {primaryAllergy.substance} ({primaryAllergy.reaction})
                     </span>
                   </div>
                 ) : (
-                  <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 font-semibold flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                  <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-200 text-[11px] sm:text-xs text-emerald-900 font-semibold flex items-center gap-1.5 sm:gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-700 shrink-0" />
                     <span>Zero drug allergies documented across linked hospitals</span>
                   </div>
                 )}
               </div>
             </div>
-            <div className="px-4 py-3 bg-white border-t border-slate-200/80 text-xs font-medium text-slate-700 flex items-center justify-between">
-              <span>Action: Show allergy card before any new medicine</span>
+            <div className="px-3 py-2 sm:px-4 sm:py-3 bg-white border-t border-slate-200/80 text-[11px] sm:text-xs font-medium text-slate-700 flex items-center justify-between">
+              <span>{t.allergyAlertSub}</span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* 2. SIMPLE VISUAL MORNING & NIGHT MEDICINE CHART */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+      {/* 2. SIMPLE VISUAL MORNING & NIGHT MEDICINE CHART + SUBMIT REFILL / APPROVAL REQUEST */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-3.5 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 mb-3 sm:mb-4">
           <div>
-            <span className="text-xs font-bold text-teal-700">
+            <span className="text-[11px] sm:text-xs font-bold text-teal-700">
               EASY DAILY PILL SCHEDULE
             </span>
-            <h2 className="text-lg font-bold text-slate-900">
-              When to Take Your Medicines Each Day
+            <h2 className="text-base sm:text-lg font-bold text-slate-900">
+              {t.section2Title}
             </h2>
+            <p className="text-xs text-slate-500 mt-0.5">{t.section2Subtitle}</p>
           </div>
-          <span className="text-xs text-emerald-700 font-semibold">
-            ✓ All signed off by licensed doctors
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            {renewalRequested ? (
+              <span className="px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-300 text-xs font-bold text-emerald-800 flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-700" />
+                <span>{t.renewalSubmittedBadge}</span>
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={handleSubmitMedicineRenewalRequest}
+                className="px-3.5 py-1.5 sm:px-4 sm:py-2 bg-teal-700 hover:bg-teal-800 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-colors"
+              >
+                <Pill className="w-3.5 h-3.5" />
+                <span>{t.requestRenewalBtn}</span>
+              </button>
+            )}
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
           {/* Morning Box */}
-          <div className="p-4 rounded-xl bg-amber-50/50 border border-amber-200 space-y-3">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-lg bg-amber-100 text-amber-800">
-                <Sun className="w-5 h-5" />
+          <div className="p-3 sm:p-4 rounded-xl bg-amber-50/50 border border-amber-200 space-y-2 sm:space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 sm:p-2 rounded-lg bg-amber-100 text-amber-800">
+                <Sun className="w-4 h-4 sm:w-5 sm:h-5" />
               </div>
               <div>
-                <div className="text-sm font-bold text-slate-900">
-                  Morning — With Breakfast
+                <div className="text-xs sm:text-sm font-bold text-slate-900">
+                  {t.morningLabel}
                 </div>
-                <div className="text-xs text-slate-600">
-                  Morning daily maintenance medicines
+                <div className="text-[11px] sm:text-xs text-slate-600">
+                  {t.MorningSub}
                 </div>
               </div>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-1.5 sm:space-y-2">
               {patient.medications.map((med) => (
                 <div
                   key={`morn-${med.id}`}
-                  className="p-3 rounded-lg bg-white border border-slate-200 flex items-center justify-between gap-3"
+                  className="p-2.5 sm:p-3 rounded-lg bg-white border border-slate-200 flex items-center justify-between gap-2.5"
                 >
                   <div>
-                    <div className="text-sm font-bold text-slate-900">
+                    <div className="text-xs sm:text-sm font-bold text-slate-900">
                       {med.name} <span className="text-teal-800 font-mono">{med.strength}</span>
                     </div>
-                    <div className="text-xs text-slate-600 mt-0.5">
+                    <div className="text-[11px] sm:text-xs text-slate-600 mt-0.5">
                       <strong>Why you take it:</strong>{' '}
                       {med.documentedReason ||
                         (med.name.includes('Telmisartan')
@@ -508,18 +596,18 @@ export const PatientVisualHealthSnapshot: React.FC<PatientVisualGuideProps> = ({
           </div>
 
           {/* Evening / Night Box */}
-          <div className="p-4 rounded-xl bg-sky-50/50 border border-sky-200 space-y-3 flex flex-col justify-between">
-            <div className="space-y-3">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-lg bg-sky-100 text-sky-800">
-                  <Moon className="w-5 h-5" />
+          <div className="p-3 sm:p-4 rounded-xl bg-sky-50/50 border border-sky-200 space-y-2 sm:space-y-3 flex flex-col justify-between">
+            <div className="space-y-2 sm:space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 sm:p-2 rounded-lg bg-sky-100 text-sky-800">
+                  <Moon className="w-4 h-4 sm:w-5 sm:h-5" />
                 </div>
                 <div>
-                  <div className="text-sm font-bold text-slate-900">
-                    Night — With Dinner
+                  <div className="text-xs sm:text-sm font-bold text-slate-900">
+                    {t.nightLabel}
                   </div>
-                  <div className="text-xs text-slate-600">
-                    Evening dose after meal
+                  <div className="text-[11px] sm:text-xs text-slate-600">
+                    {t.nightSub}
                   </div>
                 </div>
               </div>
@@ -534,25 +622,25 @@ export const PatientVisualHealthSnapshot: React.FC<PatientVisualGuideProps> = ({
                 .map((med) => (
                   <div
                     key={`night-${med.id}`}
-                    className="p-3 rounded-lg bg-white border border-slate-200 flex items-center justify-between gap-3"
+                    className="p-2.5 sm:p-3 rounded-lg bg-white border border-slate-200 flex items-center justify-between gap-2.5"
                   >
                     <div>
-                      <div className="text-sm font-bold text-slate-900">
+                      <div className="text-xs sm:text-sm font-bold text-slate-900">
                         {med.name}{' '}
                         <span className="text-teal-800 font-mono">{med.strength}</span>
                       </div>
-                      <div className="text-xs text-slate-600 mt-0.5">
-                        <strong>Why you take it:</strong> Controls overnight blood sugar levels
+                      <div className="text-[11px] sm:text-xs text-slate-600 mt-0.5">
+                        <strong>Why you take it:</strong> Controls overnight blood sugar &amp; breathing
                       </div>
                     </div>
                     <span className="text-xs font-bold text-sky-800 whitespace-nowrap shrink-0">
-                      1 Tablet
+                      {med.dose}
                     </span>
                   </div>
                 ))}
             </div>
 
-            <div className="p-3 rounded-lg bg-white border border-slate-200 text-xs text-slate-700">
+            <div className="p-2.5 sm:p-3 rounded-lg bg-white border border-slate-200 text-[11px] sm:text-xs text-slate-700">
               <strong className="text-slate-900">Simple Reminder for Next Visit:</strong> Do a routine kidney &amp; salt blood test in 4 weeks, and bring your home blood pressure readings.
             </div>
           </div>
@@ -560,35 +648,37 @@ export const PatientVisualHealthSnapshot: React.FC<PatientVisualGuideProps> = ({
       </div>
 
       {/* 3. BITE-SIZED REPORT EXPLANATIONS (1-LINE SUMMARY FIRST, EXPAND FOR FULL TEXT) */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+      <div className="bg-white border border-slate-200 rounded-2xl p-3.5 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 sm:mb-4">
           <div>
-            <span className="text-xs font-bold text-teal-700">
+            <span className="text-[11px] sm:text-xs font-bold text-teal-700">
               RECENT HOSPITAL REPORTS — BITE-SIZED &amp; EASY TO READ
             </span>
-            <h2 className="text-lg font-bold text-slate-900">
-              What Your Recent Hospital Visits Mean (In 1 Simple Sentence)
+            <h2 className="text-base sm:text-lg font-bold text-slate-900">
+              {t.section3Title}
             </h2>
+            <p className="text-xs text-slate-500 mt-0.5">{t.section3Subtitle}</p>
           </div>
           <button
             onClick={() => onNavigate('timeline')}
             className="text-xs font-semibold text-teal-700 hover:underline whitespace-nowrap shrink-0"
           >
-            View Full Timeline →
+            {t.seeAllReportsBtn}
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
           {records.slice(0, 4).map((rec) => {
             const simple = getSimpleOneLineSummary(rec);
             const isExpanded = expandedReportId === rec.id;
+            const isApprovalRequested = Boolean(requestedRecordIds[rec.id]);
             return (
               <div
                 key={rec.id}
-                className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 flex flex-col justify-between gap-3"
+                className="p-3 sm:p-4 rounded-xl border border-slate-200 bg-slate-50/50 flex flex-col justify-between gap-2.5 sm:gap-3"
               >
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-xs text-slate-500">
+                <div className="space-y-1.5 sm:space-y-2">
+                  <div className="flex items-center justify-between text-[11px] sm:text-xs text-slate-500">
                     <span>
                       <strong className="font-mono text-teal-800">{rec.id}</strong> · {rec.date} ·{' '}
                       {rec.hospital}
@@ -600,33 +690,35 @@ export const PatientVisualHealthSnapshot: React.FC<PatientVisualGuideProps> = ({
                           : 'font-semibold text-amber-700'
                       }
                     >
-                      {simple.statusLabel}
+                      {rec.reviewStatus === 'Verified'
+                        ? t.doctorCheckedBadge
+                        : t.waitingDoctorApprovalBadge}
                     </span>
                   </div>
 
-                  <h3 className="text-base font-bold text-slate-900">{simple.headline}</h3>
+                  <h3 className="text-sm sm:text-base font-bold text-slate-900">{simple.headline}</h3>
 
                   {/* Short 1-sentence plain summary */}
-                  <div className="p-3 rounded-lg bg-white border border-slate-200 space-y-1.5 text-sm">
+                  <div className="p-2.5 sm:p-3 rounded-lg bg-white border border-slate-200 space-y-1 text-xs sm:text-sm">
                     <p className="text-slate-800">
                       <strong className="text-teal-800">In Simple Words:</strong>{' '}
                       {simple.whatItMeans}
                     </p>
-                    <p className="text-xs text-slate-600">
+                    <p className="text-[11px] sm:text-xs text-slate-600">
                       <strong className="text-slate-900">Next Step:</strong> {simple.nextStep}
                     </p>
                   </div>
 
                   {/* Optional expandable full explanation for those who want details */}
                   {isExpanded && (
-                    <div className="p-3 rounded-lg bg-slate-100 text-xs text-slate-700 space-y-1.5 leading-relaxed">
+                    <div className="p-2.5 sm:p-3 rounded-lg bg-slate-100 text-xs text-slate-700 space-y-1 leading-relaxed">
                       <div className="font-bold text-slate-900">Full Medical Summary:</div>
                       <p>{rec.plainLanguageExplanation || rec.summaryNotes}</p>
                     </div>
                   )}
                 </div>
 
-                <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between text-xs">
+                <div className="pt-2 border-t border-slate-200/80 flex flex-wrap items-center justify-between gap-2 text-xs">
                   <button
                     onClick={() =>
                       setExpandedReportId(isExpanded ? null : rec.id)
@@ -646,12 +738,29 @@ export const PatientVisualHealthSnapshot: React.FC<PatientVisualGuideProps> = ({
                     )}
                   </button>
 
-                  <button
-                    onClick={() => onInspectRecord(rec)}
-                    className="font-semibold text-teal-700 hover:text-teal-900"
-                  >
-                    Open Original Report →
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {rec.reviewStatus === 'Needs Review' && (
+                      isApprovalRequested ? (
+                        <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg bg-emerald-50 border border-emerald-300 text-emerald-800 font-bold">
+                          {t.approvalRequestedBadge}
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleSubmitRecordApprovalNeed(rec)}
+                          className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-semibold transition-colors"
+                        >
+                          {t.submitApprovalNeedBtn}
+                        </button>
+                      )
+                    )}
+                    <button
+                      onClick={() => onInspectRecord(rec)}
+                      className="font-semibold text-teal-700 hover:text-teal-900"
+                    >
+                      {t.openReportBtn}
+                    </button>
+                  </div>
                 </div>
               </div>
             );

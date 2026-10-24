@@ -35,6 +35,8 @@ import {
 } from './components/PublicHealthAndGovernance';
 import { RoleLoginModal } from './components/RoleLoginModal';
 import { TimelineAndLabComparator } from './components/TimelineAndLabComparator';
+import { apiFetch, getInitialClientStore } from './apiFallback';
+import { UI_TRANSLATIONS } from './i18n';
 import { DEMO_PERSONAS, GUIDED_SCENARIOS } from './seedData';
 import {
   ABDMExchangeLogItem,
@@ -143,7 +145,9 @@ const NAV_ITEMS: NavItemConfig[] = [
     id: 'prescriptions',
     label: 'Prescription Review',
     shortMobileLabel: 'Rx Review',
-    allowedRoles: ['doctor', 'admin'],
+    patientLabel: 'Approvals & Rx Requests',
+    patientMobileLabel: 'Approvals',
+    allowedRoles: ['patient', 'doctor', 'admin'],
     icon: <Pill className="w-4 h-4" />,
   },
   {
@@ -185,6 +189,8 @@ const NAV_ITEMS: NavItemConfig[] = [
 ];
 
 export default function App() {
+  const [initialSeedStore] = useState(() => getInitialClientStore());
+
   const [role, setRole] = useState<UserRole>('patient');
   const [currentPersonaId, setCurrentPersonaId] = useState<string>('persona-patient');
   const [activeSection, setActiveSection] = useState<NavigationSection>('overview');
@@ -192,17 +198,31 @@ export default function App() {
   const [uiLanguage, setUiLanguage] = useState<SupportedUILanguage>('en');
 
   const [aiConfigured, setAiConfigured] = useState<boolean>(false);
-  const [patients, setPatients] = useState<Patient[]>([]);
-  const [records, setRecords] = useState<MedicalRecord[]>([]);
-  const [prescriptionDrafts, setPrescriptionDrafts] = useState<PrescriptionDraft[]>([]);
-  const [publicHealthSeries, setPublicHealthSeries] = useState<PublicHealthTimeSeriesPoint[]>([]);
-  const [publicHealthSignals, setPublicHealthSignals] = useState<PublicHealthSignal[]>([]);
-  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
-  const [abdmExchangeLogs, setAbdmExchangeLogs] = useState<ABDMExchangeLogItem[]>([]);
-  const [consultationQueue, setConsultationQueue] = useState<ConsultationQueueItem[]>([]);
-  const [facilityStaffConfig, setFacilityStaffConfig] = useState<FacilityStaffConfigItem[]>([]);
-  const [isLoadingState, setIsLoadingState] = useState<boolean>(true);
+  const [patients, setPatients] = useState<Patient[]>(initialSeedStore.patients);
+  const [records, setRecords] = useState<MedicalRecord[]>(initialSeedStore.records);
+  const [prescriptionDrafts, setPrescriptionDrafts] = useState<PrescriptionDraft[]>(
+    initialSeedStore.prescriptionDrafts
+  );
+  const [publicHealthSeries, setPublicHealthSeries] = useState<PublicHealthTimeSeriesPoint[]>(
+    initialSeedStore.publicHealthSeries
+  );
+  const [publicHealthSignals, setPublicHealthSignals] = useState<PublicHealthSignal[]>(
+    initialSeedStore.publicHealthSignals
+  );
+  const [notifications, setNotifications] = useState<NotificationItem[]>(
+    initialSeedStore.notifications
+  );
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(initialSeedStore.auditLogs);
+  const [abdmExchangeLogs, setAbdmExchangeLogs] = useState<ABDMExchangeLogItem[]>(
+    initialSeedStore.abdmExchangeLogs || []
+  );
+  const [consultationQueue, setConsultationQueue] = useState<ConsultationQueueItem[]>(
+    initialSeedStore.consultationQueue || []
+  );
+  const [facilityStaffConfig, setFacilityStaffConfig] = useState<FacilityStaffConfigItem[]>(
+    initialSeedStore.facilityStaffConfig || []
+  );
+  const [isLoadingState, setIsLoadingState] = useState<boolean>(false);
 
   // UI & Modal States
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -221,25 +241,45 @@ export default function App() {
       const r = targetRole || role;
       const pid = targetPatientId || selectedPatientId;
       try {
-        const res = await fetch(
+        const res = await apiFetch(
           `/api/state?role=${encodeURIComponent(r)}&patientId=${encodeURIComponent(pid)}`
         );
         if (res.ok) {
           const data = await res.json();
           setAiConfigured(Boolean(data.aiConfigured));
-          setPatients(data.patients || []);
-          setRecords(data.records || []);
-          setPrescriptionDrafts(data.prescriptionDrafts || []);
-          setPublicHealthSeries(data.publicHealthSeries || []);
-          setPublicHealthSignals(data.publicHealthSignals || []);
-          setNotifications(data.notifications || []);
-          setAuditLogs(data.auditLogs || []);
-          setAbdmExchangeLogs(data.abdmExchangeLogs || []);
-          setConsultationQueue(data.consultationQueue || []);
-          setFacilityStaffConfig(data.facilityStaffConfig || []);
+          if (Array.isArray(data.patients) && data.patients.length > 0) {
+            setPatients(data.patients);
+          }
+          if (Array.isArray(data.records) && data.records.length > 0) {
+            setRecords(data.records);
+          }
+          if (Array.isArray(data.prescriptionDrafts)) {
+            setPrescriptionDrafts(data.prescriptionDrafts);
+          }
+          if (Array.isArray(data.publicHealthSeries)) {
+            setPublicHealthSeries(data.publicHealthSeries);
+          }
+          if (Array.isArray(data.publicHealthSignals)) {
+            setPublicHealthSignals(data.publicHealthSignals);
+          }
+          if (Array.isArray(data.notifications)) {
+            setNotifications(data.notifications);
+          }
+          if (Array.isArray(data.auditLogs)) {
+            setAuditLogs(data.auditLogs);
+          }
+          if (Array.isArray(data.abdmExchangeLogs)) {
+            setAbdmExchangeLogs(data.abdmExchangeLogs);
+          }
+          if (Array.isArray(data.consultationQueue)) {
+            setConsultationQueue(data.consultationQueue);
+          }
+          if (Array.isArray(data.facilityStaffConfig)) {
+            setFacilityStaffConfig(data.facilityStaffConfig);
+          }
         }
       } catch (err) {
-        console.error('Failed to fetch state:', err);
+        console.warn('Using client seed fallback store:', err);
       } finally {
         setIsLoadingState(false);
       }
@@ -313,7 +353,7 @@ export default function App() {
   const handleResetDemoStore = async () => {
     setIsResetting(true);
     try {
-      await fetch('/api/reset', { method: 'POST' });
+      await apiFetch('/api/reset', { method: 'POST' });
       await fetchAppState();
       setActiveScenarioBanner(null);
     } finally {
@@ -356,9 +396,9 @@ export default function App() {
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
       {/* Top Bar Contract: 3 Clean Zones separated by gap-8 */}
-      <header className="sticky top-0 z-30 bg-white border-b border-slate-200 px-4 lg:px-6 py-3 flex items-center justify-between gap-4 lg:gap-8">
+      <header className="sticky top-0 z-30 bg-white border-b border-slate-200 px-3 lg:px-6 py-2 lg:py-3 flex items-center justify-between gap-2 lg:gap-8">
         {/* Zone 1: Original OneHealth AI Brand Wordmark & Emblem */}
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex items-center gap-2.5 shrink-0">
           <a
             href="#overview"
             onClick={(e) => {
@@ -366,12 +406,12 @@ export default function App() {
               setActiveSection('overview');
               setMobileMenuOpen(false);
             }}
-            className="text-base font-bold tracking-tight text-slate-900 whitespace-nowrap shrink-0 flex items-center gap-2.5"
+            className="text-sm sm:text-base font-bold tracking-tight text-slate-900 whitespace-nowrap shrink-0 flex items-center gap-2"
           >
             <OneHealthBrandLogo />
             <div>
               <span className="block leading-none">OneHealth AI</span>
-              <span className="block text-[10px] font-medium text-slate-500 mt-0.5">
+              <span className="hidden sm:block text-[10px] font-medium text-slate-500 mt-0.5">
                 Connected Health &amp; Clinical Intelligence
               </span>
             </div>
@@ -455,19 +495,20 @@ export default function App() {
         </div>
 
         {/* Zone 3: 1 Primary Action Button (Demo Role & Scenario Switcher) */}
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={() => setIsRoleModalOpen(true)}
-            className="px-3.5 py-2 text-xs font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg transition-colors whitespace-nowrap shrink-0"
+            className="px-2.5 py-1.5 sm:px-3.5 sm:py-2 text-[11px] sm:text-xs font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg transition-colors whitespace-nowrap shrink-0"
           >
-            Switch Demo Account ({role.toUpperCase()})
+            <span className="sm:hidden">Role ({role.toUpperCase()})</span>
+            <span className="hidden sm:inline">Switch Demo Account ({role.toUpperCase()})</span>
           </button>
         </div>
       </header>
 
       {/* Mobile On-The-Go Sample Patient & Doctor Switcher Bar */}
       {role !== 'analyst' && selectedPatient && (
-        <div className="md:hidden bg-white border-b border-slate-200 px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+        <div className="md:hidden bg-white border-b border-slate-200 px-3 py-1.5 flex items-center justify-between gap-1.5 text-[11px]">
           {role === 'doctor' && (
             <select
               value={currentPersona.id}
@@ -476,7 +517,7 @@ export default function App() {
                 if (docPersona) handleSelectRole('doctor', docPersona);
               }}
               aria-label="Mobile switch sample doctor"
-              className="px-2 py-1.5 bg-teal-50 border border-teal-300 rounded-lg font-semibold text-teal-950 text-xs"
+              className="px-2 py-1 bg-teal-50 border border-teal-300 rounded-md font-semibold text-teal-950 text-[11px] max-w-[130px] truncate"
             >
               {DEMO_PERSONAS.filter((p) => p.role === 'doctor').map((doc) => (
                 <option key={doc.id} value={doc.id}>
@@ -486,13 +527,13 @@ export default function App() {
             </select>
           )}
           <span className="text-slate-500 font-medium shrink-0">
-            {role === 'patient' ? 'Sample Patient:' : 'Patient:'}
+            {role === 'patient' ? 'Patient:' : 'Pt:'}
           </span>
           <select
             value={selectedPatient.id}
             onChange={(e) => handleSelectPatient(e.target.value)}
             aria-label="Mobile switch active patient"
-            className="flex-1 min-w-0 px-2.5 py-1.5 bg-slate-100 border border-slate-300 rounded-lg font-semibold text-slate-900 text-xs focus:outline-none focus:border-teal-700"
+            className="flex-1 min-w-0 px-2 py-1 bg-slate-100 border border-slate-300 rounded-md font-semibold text-slate-900 text-[11px] focus:outline-none focus:border-teal-700"
           >
             {patients.map((pt) => (
               <option key={pt.id} value={pt.id}>
@@ -503,11 +544,11 @@ export default function App() {
         </div>
       )}
 
-      {/* Prototype Evaluator Bar: 1-Click Switch Across 2 Sample Patients, 2 Sample Doctors, Admin & Analyst */}
-      <div className="bg-slate-900 text-slate-200 px-4 lg:px-6 py-2 text-xs border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="font-mono font-semibold text-teal-400 mr-1">
-            DEMO ACCOUNTS:
+      {/* Prototype Evaluator Bar: Compact Horizontal Scroll on Mobile, Full Wrap on Desktop */}
+      <div className="bg-slate-900 text-slate-200 px-3 lg:px-6 py-1.5 sm:py-2 text-[11px] sm:text-xs border-b border-slate-800 flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-between gap-1.5 sm:gap-3">
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+          <span className="font-mono font-semibold text-teal-400 mr-0.5 shrink-0">
+            DEMO:
           </span>
           {DEMO_PERSONAS.map((persona) => {
             const isActivePersona =
@@ -532,7 +573,7 @@ export default function App() {
               <button
                 key={persona.id}
                 onClick={() => handleSelectRole(persona.role, persona)}
-                className={`px-2.5 py-1 rounded font-semibold transition-colors whitespace-nowrap ${
+                className={`px-2 py-0.5 sm:px-2.5 sm:py-1 rounded font-semibold transition-colors whitespace-nowrap shrink-0 ${
                   isActivePersona
                     ? 'bg-teal-600 text-white'
                     : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
@@ -544,15 +585,41 @@ export default function App() {
           })}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-slate-400 hidden sm:inline">Scenarios:</span>
-          <div className="flex items-center gap-1 overflow-x-auto">
+        <div className="flex items-center justify-between sm:justify-end gap-1.5 overflow-x-auto no-scrollbar">
+          {/* Indian Language Accessibility Buttons (Instant Multilingual UI & Patient Summary) */}
+          <div className="flex items-center gap-1 bg-slate-800 p-0.5 sm:p-1 rounded-lg border border-slate-700 shrink-0">
+            <Globe className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-teal-400 ml-1 mr-0.5 shrink-0" />
+            {(
+              [
+                { code: 'en', label: 'English' },
+                { code: 'hi', label: 'हिंदी' },
+                { code: 'ta', label: 'தமிழ்' },
+                { code: 'kn', label: 'ಕನ್ನಡ' },
+              ] as { code: SupportedUILanguage; label: string }[]
+            ).map((lang) => (
+              <button
+                key={lang.code}
+                type="button"
+                onClick={() => setUiLanguage(lang.code)}
+                className={`px-1.5 sm:px-2 py-0.5 rounded text-[11px] sm:text-xs font-semibold transition-colors whitespace-nowrap ${
+                  uiLanguage === lang.code
+                    ? 'bg-teal-600 text-white shadow-xs'
+                    : 'text-slate-300 hover:bg-slate-700 hover:text-white'
+                }`}
+              >
+                {lang.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0">
+            <span className="text-slate-400 hidden lg:inline">Scenarios:</span>
             {GUIDED_SCENARIOS.map((sc) => (
               <button
                 key={sc.id}
                 onClick={() => handleRunScenario(sc)}
                 title={sc.title}
-                className={`px-2 py-1 rounded font-mono font-semibold transition-colors whitespace-nowrap ${
+                className={`px-1.5 sm:px-2 py-0.5 sm:py-1 rounded font-mono font-semibold transition-colors whitespace-nowrap ${
                   activeScenarioBanner?.id === sc.id
                     ? 'bg-amber-500 text-slate-950'
                     : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
@@ -563,29 +630,14 @@ export default function App() {
             ))}
           </div>
 
-          {/* Indian Language Accessibility Selector (Patient Summary Glossary Support) */}
-          <div className="flex items-center gap-1.5 ml-1">
-            <Globe className="w-3.5 h-3.5 text-teal-400" />
-            <select
-              value={uiLanguage}
-              onChange={(e) => setUiLanguage(e.target.value as SupportedUILanguage)}
-              aria-label="Select patient summary language"
-              className="px-2 py-1 rounded bg-slate-800 text-slate-200 border border-slate-700 text-xs"
-            >
-              <option value="en">Lang: English</option>
-              <option value="hi">हिंदी (Hindi Summary)</option>
-              <option value="ta">தமிழ் (Tamil Summary)</option>
-              <option value="kn">ಕನ್ನಡ (Kannada Summary)</option>
-            </select>
-          </div>
-
           <button
             onClick={handleResetDemoStore}
             disabled={isResetting}
-            className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold flex items-center gap-1 whitespace-nowrap"
+            className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold flex items-center gap-1 whitespace-nowrap shrink-0"
           >
             <RotateCcw className="w-3 h-3" />
-            <span>{isResetting ? 'Resetting...' : 'Reset Seed Data'}</span>
+            <span className="hidden sm:inline">{isResetting ? 'Resetting...' : 'Reset Seed Data'}</span>
+            <span className="sm:hidden">{isResetting ? '...' : 'Reset'}</span>
           </button>
         </div>
       </div>
@@ -601,8 +653,16 @@ export default function App() {
           <div className="p-3 space-y-1">
             {visibleNavItems.map((item) => {
               const isActive = activeSection === item.id;
+              const translatedNavObj =
+                UI_TRANSLATIONS[uiLanguage]?.navLabels?.[item.id];
+              const translatedNavLabel =
+                role === 'patient' && translatedNavObj?.patient
+                  ? translatedNavObj.patient
+                  : translatedNavObj?.standard;
               const displayLabel =
-                role === 'patient' && item.patientLabel
+                uiLanguage !== 'en' && translatedNavLabel
+                  ? translatedNavLabel
+                  : role === 'patient' && item.patientLabel
                   ? item.patientLabel
                   : item.label;
               return (
@@ -731,7 +791,7 @@ export default function App() {
         {/* Persistent Bottom-Anchored Mobile Navigation Tab Bar (Primary Roles) */}
         <nav
           aria-label="Primary mobile navigation"
-          className="fixed bottom-0 inset-x-0 z-50 lg:hidden bg-white/95 backdrop-blur-md border-t border-slate-200 px-1.5 py-1 shadow-[0_-4px_16px_rgba(15,23,42,0.06)]"
+          className="fixed bottom-0 inset-x-0 z-50 lg:hidden bg-white/95 backdrop-blur-md border-t border-slate-200 px-1 py-0.5 shadow-[0_-4px_16px_rgba(15,23,42,0.06)]"
         >
           <div className="flex items-stretch justify-around max-w-lg mx-auto">
             {primaryMobileTabs.map((item) => {
@@ -748,7 +808,7 @@ export default function App() {
                     setMobileMenuOpen(false);
                   }}
                   aria-current={isActive ? 'page' : undefined}
-                  className={`relative flex-1 min-h-[52px] py-1.5 px-1 rounded-xl flex flex-col items-center justify-center gap-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-700 ${
+                  className={`relative flex-1 min-h-[44px] py-1 px-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-700 ${
                     isActive
                       ? 'text-teal-800 bg-teal-50/90 font-bold'
                       : 'text-slate-600 hover:text-slate-900 font-medium'
@@ -766,7 +826,7 @@ export default function App() {
                       </span>
                     )}
                   </span>
-                  <span className="text-[11px] leading-none tracking-tight truncate max-w-[68px]">
+                  <span className="text-[10px] sm:text-[11px] leading-none tracking-tight truncate max-w-[68px]">
                     {shortLabel}
                   </span>
                 </button>
@@ -778,7 +838,7 @@ export default function App() {
                 onClick={() => setMobileMenuOpen((prev) => !prev)}
                 aria-expanded={mobileMenuOpen}
                 aria-label="More navigation options"
-                className={`relative flex-1 min-h-[52px] py-1.5 px-1 rounded-xl flex flex-col items-center justify-center gap-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-700 ${
+                className={`relative flex-1 min-h-[44px] py-1 px-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-700 ${
                   mobileMenuOpen || isSecondaryMobileActive
                     ? 'text-teal-800 bg-teal-50/90 font-bold'
                     : 'text-slate-600 hover:text-slate-900 font-medium'
@@ -793,7 +853,7 @@ export default function App() {
                 >
                   <MoreHorizontal className="w-4 h-4" />
                 </span>
-                <span className="text-[11px] leading-none tracking-tight truncate max-w-[68px]">
+                <span className="text-[10px] sm:text-[11px] leading-none tracking-tight truncate max-w-[68px]">
                   {isSecondaryMobileActive
                     ? activeNavConfig?.shortMobileLabel || 'More'
                     : 'More'}
@@ -804,9 +864,9 @@ export default function App() {
         </nav>
 
         {/* Main Content Viewport */}
-        <main className="flex-1 min-w-0 p-4 pb-24 md:p-6 md:pb-24 lg:p-8 lg:pb-8 max-w-7xl mx-auto w-full space-y-5">
+        <main className="flex-1 min-w-0 p-2.5 pb-16 sm:p-5 sm:pb-24 lg:p-8 lg:pb-8 max-w-7xl mx-auto w-full space-y-3 sm:space-y-5">
           {/* Breadcrumbs & Contextual Patient Drawer Toggle Bar */}
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+          <div className="hidden sm:flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
             <nav aria-label="Breadcrumb" className="flex items-center gap-2">
               <button
                 onClick={() => setActiveSection('overview')}
@@ -854,7 +914,7 @@ export default function App() {
 
           {/* Active Guided Scenario Banner */}
           {activeScenarioBanner && (
-            <div className="p-4 rounded-xl bg-teal-900 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="p-3 sm:p-4 rounded-xl bg-teal-900 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4">
               <div className="text-xs space-y-1">
                 <div className="font-mono font-bold text-teal-300">
                   ACTIVE GUIDED CLINICAL WALKTHROUGH · {activeScenarioBanner.title.toUpperCase()}
@@ -868,6 +928,33 @@ export default function App() {
                 className="px-3 py-1.5 bg-teal-800 hover:bg-teal-700 text-white text-xs font-semibold rounded-lg shrink-0 self-start sm:self-center"
               >
                 Dismiss Walkthrough Guide
+              </button>
+            </div>
+          )}
+
+          {/* Active Multilingual Banner when Hindi / Tamil / Kannada is selected */}
+          {uiLanguage !== 'en' && (
+            <div className="p-3 sm:p-4 rounded-xl bg-teal-50 border border-teal-300 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 text-xs text-teal-950">
+              <div className="space-y-0.5 sm:space-y-1">
+                <div className="font-bold flex items-center gap-1.5 text-teal-900">
+                  <Globe className="w-4 h-4 text-teal-700 shrink-0" />
+                  <span>
+                    {UI_TRANSLATIONS[uiLanguage].activeLanguageNoticeTitle} ({UI_TRANSLATIONS[uiLanguage].languageName})
+                  </span>
+                </div>
+                <p className="text-slate-800 leading-snug">
+                  {UI_TRANSLATIONS[uiLanguage].activeLanguageNoticeBody(
+                    selectedPatient?.fullName || 'Ananya Rao',
+                    3
+                  )}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setUiLanguage('en')}
+                className="px-2.5 py-1 sm:px-3 sm:py-1.5 bg-white border border-teal-300 hover:bg-teal-100 text-teal-900 font-semibold rounded-lg shrink-0 self-start sm:self-center"
+              >
+                Switch to English
               </button>
             </div>
           )}
@@ -892,6 +979,8 @@ export default function App() {
                   abdmExchangeLogs={abdmExchangeLogs}
                   consultationQueue={consultationQueue}
                   facilityStaffConfig={facilityStaffConfig}
+                  uiLanguage={uiLanguage}
+                  onRefreshState={fetchAppState}
                   onNavigate={setActiveSection}
                   onSelectPatient={handleSelectPatient}
                   onInspectRecord={(rec) => {
@@ -971,6 +1060,7 @@ export default function App() {
                   records={records}
                   aiConfigured={aiConfigured}
                   uiLanguage={uiLanguage}
+                  onChangeLanguage={setUiLanguage}
                   onInspectRecord={(rec) => {
                     setInspectedRecord(rec);
                     setActiveSection('records');
@@ -986,6 +1076,7 @@ export default function App() {
                   records={records}
                   aiConfigured={aiConfigured}
                   uiLanguage={uiLanguage}
+                  onChangeLanguage={setUiLanguage}
                   onInspectRecord={(rec) => {
                     setInspectedRecord(rec);
                     setActiveSection('records');

@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   Unlock,
 } from 'lucide-react';
+import { apiFetch } from '../apiFallback';
 import {
   AuditLogEntry,
   NavigationSection,
@@ -115,7 +116,7 @@ export const PublicHealthDashboard: React.FC<PublicHealthDashboardProps> = ({
     setIsUpdatingSignal(true);
     setStatusFeedback(null);
     try {
-      const res = await fetch(`/api/public-health/signals/${signalId}`, {
+      const res = await apiFetch(`/api/public-health/signals/${signalId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -615,14 +616,17 @@ export const SharingAndPrivacyView: React.FC<SharingAndPrivacyViewProps> = ({
     );
   }
 
-  const handleConfirmPermissionChange = async () => {
-    if (!confirmTogglePerm) return;
-    const res = await fetch(`/api/patients/${patient.id}/permissions`, {
+  const handleDirectPermissionChange = async (
+    permId: string,
+    entityName: string,
+    targetStatus: 'Active' | 'Revoked' | 'Rejected'
+  ) => {
+    const res = await apiFetch(`/api/patients/${patient.id}/permissions`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        permissionId: confirmTogglePerm.id,
-        newStatus: confirmTogglePerm.targetStatus,
+        permissionId: permId,
+        newStatus: targetStatus,
         actorRole: role,
         actorIdentity:
           role === 'patient' ? `${patient.fullName} (${patient.id})` : 'Demo Evaluator',
@@ -631,20 +635,30 @@ export const SharingAndPrivacyView: React.FC<SharingAndPrivacyViewProps> = ({
     if (res.ok) {
       await onRefreshState();
       setPrivacyBanner(
-        `Permission for "${confirmTogglePerm.entityName}" updated to ${confirmTogglePerm.targetStatus}. Subsequent Doctor/Copilot access checks immediately enforce this state.`
+        `Permission for "${entityName}" updated to ${targetStatus}. Subsequent Doctor/Copilot access checks immediately enforce this state.`
       );
       setConfirmTogglePerm(null);
     }
   };
 
+  const handleConfirmPermissionChange = async () => {
+    if (!confirmTogglePerm) return;
+    await handleDirectPermissionChange(
+      confirmTogglePerm.id,
+      confirmTogglePerm.entityName,
+      confirmTogglePerm.targetStatus
+    );
+  };
+
   const handleGrantNewAccess = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newEntityName.trim()) return;
-    const res = await fetch(`/api/patients/${patient.id}/permissions`, {
+    const targetName =
+      newEntityName.trim() || 'Seva Community Medical Institute — Ophthalmology';
+    const res = await apiFetch(`/api/patients/${patient.id}/permissions`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        newEntityName: newEntityName.trim(),
+        newEntityName: targetName,
         newEntityType,
         newCategories: ['Lab Reports', 'Prescriptions', 'Discharge Summaries'],
         newPurpose,
@@ -657,7 +671,7 @@ export const SharingAndPrivacyView: React.FC<SharingAndPrivacyViewProps> = ({
       await onRefreshState();
       setNewEntityName('');
       setPrivacyBanner(
-        `Granted new sharing access to "${newEntityName.trim()}" and recorded the event in the access audit log.`
+        `Granted new sharing access to "${targetName}" and recorded the event in the access audit log.`
       );
     }
   };
@@ -684,7 +698,7 @@ export const SharingAndPrivacyView: React.FC<SharingAndPrivacyViewProps> = ({
           Connected Health Record Sharing & Consent Controls
         </h1>
         <p className="text-sm text-slate-600 mt-1 max-w-3xl">
-          Review which doctors and hospitals can access {patient.fullName}&apos;s connected health records. Revoking access immediately updates the permission state and restricts subsequent clinician/AI access checks.
+          Review which doctors and hospitals can access {patient.fullName}&apos;s connected health records. Approving or revoking access immediately updates the permission state and restricts subsequent clinician/AI access checks.
         </p>
       </div>
 
@@ -764,30 +778,55 @@ export const SharingAndPrivacyView: React.FC<SharingAndPrivacyViewProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 shrink-0">
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
                   <span
                     className={`text-xs font-bold ${
-                      perm.status === 'Active' ? 'text-emerald-700' : 'text-red-700'
+                      perm.status === 'Active'
+                        ? 'text-emerald-700'
+                        : perm.status === 'Pending Approval'
+                        ? 'text-amber-800'
+                        : 'text-red-700'
                     }`}
                   >
                     {perm.status}
                   </span>
-                  <button
-                    onClick={() =>
-                      setConfirmTogglePerm({
-                        id: perm.id,
-                        entityName: perm.entityName,
-                        targetStatus: perm.status === 'Active' ? 'Revoked' : 'Active',
-                      })
-                    }
-                    className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
-                      perm.status === 'Active'
-                        ? 'bg-red-100 hover:bg-red-200 text-red-900'
-                        : 'bg-teal-700 hover:bg-teal-800 text-white'
-                    }`}
-                  >
-                    {perm.status === 'Active' ? 'Revoke Access' : 'Grant Access'}
-                  </button>
+                  {perm.status === 'Pending Approval' ? (
+                    <>
+                      <button
+                        onClick={() =>
+                          handleDirectPermissionChange(perm.id, perm.entityName, 'Active')
+                        }
+                        className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-teal-700 hover:bg-teal-800 text-white whitespace-nowrap"
+                      >
+                        Approve Request
+                      </button>
+                      <button
+                        onClick={() =>
+                          handleDirectPermissionChange(perm.id, perm.entityName, 'Rejected')
+                        }
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-red-300 hover:bg-red-50 text-red-800 whitespace-nowrap"
+                      >
+                        Reject
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() =>
+                        handleDirectPermissionChange(
+                          perm.id,
+                          perm.entityName,
+                          perm.status === 'Active' ? 'Revoked' : 'Active'
+                        )
+                      }
+                      className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
+                        perm.status === 'Active'
+                          ? 'bg-red-100 hover:bg-red-200 text-red-900'
+                          : 'bg-teal-700 hover:bg-teal-800 text-white'
+                      }`}
+                    >
+                      {perm.status === 'Active' ? 'Revoke Access' : 'Grant Access'}
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -914,13 +953,13 @@ export const NotificationsAndAuditView: React.FC<
   const [roleFilter, setRoleFilter] = useState<string>('ALL');
 
   const handleMarkNotificationRead = async (notif: NotificationItem) => {
-    await fetch(`/api/notifications/${notif.id}/read`, { method: 'PATCH' });
+    await apiFetch(`/api/notifications/${notif.id}/read`, { method: 'PATCH' });
     await onRefreshState();
     onNavigate(notif.targetSection);
   };
 
   const handleMarkAllRead = async () => {
-    await fetch('/api/notifications/read-all', {
+    await apiFetch('/api/notifications/read-all', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ role }),
