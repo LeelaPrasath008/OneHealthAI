@@ -1,0 +1,6 @@
+{
+  "name": "OneHealth AI",
+  "description": "Connected Health Records, Clinical Intelligence & Early Warning — Multi-hospital longitudinal records, clinician-supervised AI copilot, and de-identified public-health surveillance.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
